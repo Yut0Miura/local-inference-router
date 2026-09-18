@@ -1,0 +1,21 @@
+services:
+  ollama:
+    image: ollama/ollama:0.34.0
+    volumes:
+      - ollama-data:/root/.ollama
+    # Not published on the host: only the router needs to reach it.
+    expose:
+      - "11434"
+
+  router:
+    build: .
+    command: ["serve", "-config", "/etc/local-inference-router/config.yaml"]
+    volumes:
+      - ./examples/compose-config.yaml:/etc/local-inference-router/config.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - ollama
+
+volumes:
+  ollama-data:

@@ -1,0 +1,20 @@
+version: 1
+
+listen: "0.0.0.0:8080"
+
+bearer_token_env: ""
+
+backends:
+  - name: "ollama"
+    kind: "ollama"
+    base_url: "http://ollama:11434"
+    max_inflight: 4
+    response_header_timeout_ms: 120000
+    bearer_token_env: ""
+
+aliases:
+  - name: "local-chat"
+    routes:
+      - backend: "ollama"
+        upstream_model: "qwen3:0.6b"
+        priority: 10
