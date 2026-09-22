@@ -65,6 +65,15 @@ Every backend must already be running and must expose an OpenAI-compatible `POST
 
 ## Quick Start
 
+Prerequisites
+
+- Go 1.27.x when building the router locally
+- at least one supported inference backend already running: Ollama, llama.cpp or vLLM
+- the model referenced by a configured route already available in that backend
+
+The router does not start inference runtimes or download, load or unload models.
+make build
+
 ```bash
 make build
 ./bin/local-inference-router validate -config examples/config.yaml
