@@ -79,7 +79,13 @@ make build
 ./bin/local-inference-router validate -config examples/config.yaml
 ./bin/local-inference-router serve -config examples/config.yaml
 ```
+After the router starts, verify that the process is healthy and ready to route requests:
 
+```bash
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+
+```
 With Ollama running locally and `qwen3:0.6b` pulled, the example configuration is ready to use:
 
 ```bash
