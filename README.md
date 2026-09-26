@@ -86,6 +86,14 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 
 ```
+
+You can also verify which model aliases are currently exposed by the router:
+
+```bash
+_curl _http://127.0.0.1:8080/v1/models
+
+```
+
 With Ollama running locally and `qwen3:0.6b` pulled, the example configuration is ready to use:
 
 ```bash
