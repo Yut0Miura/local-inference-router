@@ -190,6 +190,8 @@ Selection and the reservation that follows happen under one lock, so concurrent 
 
 `max_inflight` belongs to the backend. If several aliases point at the same backend, they share it. A streaming request stays in flight until the stream ends.
 
+When failover moves between two routes that use the same backend, the existing reservation is transferred atomically under the routing mutex. This lets a different `upstream_model` reuse the same backend slot without temporarily exceeding `max_inflight` or exposing that slot to another request.
+
 There is no queue: if nothing is both healthy and below capacity, the router answers `503` immediately.
 
 ## Bounded Failover
