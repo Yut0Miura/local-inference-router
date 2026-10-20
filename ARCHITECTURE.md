@@ -49,7 +49,7 @@ Aliases and backends keep configuration order, which makes status output and tie
 
 Selection and the increment of the chosen backend's in-flight counter happen under one lock. Two concurrent requests therefore cannot both see the last free slot.
 
-The reservation is released exactly once, whatever ends the attempt: a completed response, a transport failure, a failover, client cancellation or a copy error. Counters never go negative.
+A reservation is either released when an attempt is finished or atomically transferred to another route during retryable-status failover. Counters never go negative, and a transfer never exposes the temporarily freed slot to another concurrent request.
 
 A streaming response holds its reservation until the stream finishes, because the backend is still working until then.
 
@@ -74,7 +74,7 @@ The router may try another route only while nothing has been written downstream.
 
 Retryable before commitment: transport, DNS, TLS and response-header-timeout failures, and the statuses `429`, `502`, `503`, `504`. Not retryable: client cancellation and every other status, including `3xx`, `401`, `404` and `500`.
 
-Each route is tried at most once, there is no backoff, and the attempt count is bounded by the number of routes in the alias. On a retryable status the next route is reserved *before* the current reservation is released, so the freed slot cannot be taken by another request in between; only then is the abandoned response body closed.
+Each route is tried at most once, there is no backoff, and the attempt count is bounded by the number of routes in the alias. On a retryable status the router atomically transfers the current reservation to the next eligible route while holding the routing mutex. The current slot is temporarily made available only inside that critical section, which allows failover between different model routes on the same backend at max_inflight without letting another concurrent request steal the slot. If no alternative exists, the current reservation is restored.
 
 ## Streaming
 
