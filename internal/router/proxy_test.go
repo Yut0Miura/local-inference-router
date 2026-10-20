@@ -162,24 +162,177 @@ func TestModelIsRewrittenAndOtherFieldsPreserved(t *testing.T) {
 }
 
 func TestFailoverOnRetryableStatuses(t *testing.T) {
-	for _, status := range []int{http.StatusTooManyRequests, http.StatusBadGateway,
-		http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+	for _, status := range []int{
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			first := newUpstream(t, statusHandler(status, `{"error":"busy"}`))
 			second := newUpstream(t, statusHandler(http.StatusOK, `{"ok":true}`))
-			proxy, _ := buildProxy(t, []string{first.server.URL, second.server.URL}, nil, []int{10, 20})
 
-			rec, got, apiErr := serve(t, proxy, chatPayload(t, `{"model":"chat"}`))
+			proxy, _ := buildProxy(
+				t,
+				[]string{first.server.URL, second.server.URL},
+				nil,
+				[]int{10, 20},
+			)
+
+			rec, got, apiErr := serve(
+				t,
+				proxy,
+				chatPayload(t, `{"model":"chat"}`),
+			)
+
 			if apiErr != nil || got != http.StatusOK {
 				t.Fatalf("status = %d, err = %+v", got, apiErr)
 			}
+
 			if first.requests.Load() != 1 || second.requests.Load() != 1 {
-				t.Fatalf("attempts: first=%d second=%d", first.requests.Load(), second.requests.Load())
+				t.Fatalf(
+					"attempts: first=%d second=%d",
+					first.requests.Load(),
+					second.requests.Load(),
+				)
 			}
+
 			if !strings.Contains(rec.Body.String(), `"ok":true`) {
-				t.Fatalf("body = %s, want the second backend's response", rec.Body.String())
+				t.Fatalf(
+					"body = %s, want the second backend's response",
+					rec.Body.String(),
+				)
 			}
 		})
+	}
+}
+
+func TestFailoverBetweenRoutesOnSameBackendAtCapacity(t *testing.T) {
+	var requests atomic.Int64
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		switch body["model"] {
+		case "primary-model":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"primary model busy"}`)
+
+		case "backup-model":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"ok":true}`)
+
+		default:
+			http.Error(w, "unexpected model", http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		Version: 1,
+		Listen:  "127.0.0.1:8080",
+		Backends: []config.BackendConfig{
+			{
+				Name:                    "shared",
+				Kind:                    config.KindOllama,
+				BaseURL:                 server.URL,
+				MaxInflight:             1,
+				ResponseHeaderTimeoutMS: 1000,
+			},
+		},
+		Aliases: []config.AliasConfig{
+			{
+				Name: "chat",
+				Routes: []config.RouteConfig{
+					{
+						Backend:       "shared",
+						UpstreamModel: "primary-model",
+						Priority:      10,
+					},
+					{
+						Backend:       "shared",
+						UpstreamModel: "backup-model",
+						Priority:      20,
+					},
+				},
+			},
+		},
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("invalid test configuration: %v", err)
+	}
+
+	backends, err := backend.Build(
+		cfg.Backends,
+		backend.EnvSecrets,
+	)
+	if err != nil {
+		t.Fatalf("build backends: %v", err)
+	}
+
+	recorder := metrics.New()
+
+	state, err := router.NewState(
+		cfg,
+		backends,
+		recorder,
+	)
+	if err != nil {
+		t.Fatalf("new state: %v", err)
+	}
+
+	state.SetHealth("shared", true)
+
+	proxy := router.NewProxy(
+		state,
+		recorder,
+		quietLogger(),
+	)
+
+	rec, status, apiErr := serve(
+		t,
+		proxy,
+		chatPayload(t, `{"model":"chat"}`),
+	)
+
+	if apiErr != nil {
+		t.Fatalf("unexpected router error: %+v", apiErr)
+	}
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+
+	if requests.Load() != 2 {
+		t.Fatalf(
+			"upstream requests = %d, want 2",
+			requests.Load(),
+		)
+	}
+
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf(
+			"body = %s, want backup model response",
+			rec.Body.String(),
+		)
+	}
+
+	snapshot := state.Snapshot()
+
+	if got := snapshot.Backends[0].Inflight; got != 0 {
+		t.Fatalf(
+			"inflight after request = %d, want 0",
+			got,
+		)
 	}
 }
 
