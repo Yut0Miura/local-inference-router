@@ -149,6 +149,86 @@ func (s *State) Reserve(aliasName string, attempted map[*Route]bool) (*Route, er
 	return selected, nil
 }
 
+func (s *State) Reserve(
+	aliasName string,
+	attempted map[*Route]bool,
+) (*Route, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	alias, ok := s.aliases[aliasName]
+	if !ok {
+		return nil, ErrUnknownAlias
+	}
+
+	selected := s.selectLocked(alias, attempted)
+	if selected == nil {
+		return nil, ErrNoRoute
+	}
+
+	bs := s.backends[selected.Backend.Name]
+	bs.inflight++
+
+	if s.metrics != nil {
+		s.metrics.SetInflight(bs.backend.Name, bs.inflight)
+	}
+
+	return selected, nil
+}
+
+func (s *State) SwapReservation(
+	aliasName string,
+	current *Route,
+	attempted map[*Route]bool,
+) (*Route, error) {
+	if current == nil {
+		return nil, ErrNoRoute
+	}
+
+	s.mu.Lock()
+
+	alias, ok := s.aliases[aliasName]
+	if !ok {
+		s.mu.Unlock()
+		return nil, ErrUnknownAlias
+	}
+
+	currentBS, ok := s.backends[current.Backend.Name]
+	if !ok || currentBS.inflight <= 0 {
+		s.mu.Unlock()
+		return nil, ErrNoRoute
+	}
+
+	currentBS.inflight--
+
+	selected := s.selectLocked(alias, attempted)
+	if selected == nil {
+		currentBS.inflight++
+		s.mu.Unlock()
+		return nil, ErrNoRoute
+	}
+
+	selectedBS := s.backends[selected.Backend.Name]
+	selectedBS.inflight++
+
+	currentName := currentBS.backend.Name
+	currentInflight := currentBS.inflight
+	selectedName := selectedBS.backend.Name
+	selectedInflight := selectedBS.inflight
+
+	s.mu.Unlock()
+
+	if s.metrics != nil {
+		if currentName != selectedName {
+			s.metrics.SetInflight(currentName, currentInflight)
+		}
+
+		s.metrics.SetInflight(selectedName, selectedInflight)
+	}
+
+	return selected, nil
+}
+
 // Release returns the capacity reserved for a route. It is called exactly once
 // per successful Reserve, whatever ends the attempt.
 func (s *State) Release(route *Route) {
