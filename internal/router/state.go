@@ -149,33 +149,15 @@ func (s *State) Reserve(aliasName string, attempted map[*Route]bool) (*Route, er
 	return selected, nil
 }
 
-func (s *State) Reserve(
-	aliasName string,
-	attempted map[*Route]bool,
-) (*Route, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	alias, ok := s.aliases[aliasName]
-	if !ok {
-		return nil, ErrUnknownAlias
-	}
-
-	selected := s.selectLocked(alias, attempted)
-	if selected == nil {
-		return nil, ErrNoRoute
-	}
-
-	bs := s.backends[selected.Backend.Name]
-	bs.inflight++
-
-	if s.metrics != nil {
-		s.metrics.SetInflight(bs.backend.Name, bs.inflight)
-	}
-
-	return selected, nil
-}
-
+// SwapReservation atomically moves the reservation held by current to the next
+// eligible route for the alias.
+//
+// The current backend's capacity is made available only while s.mu is held.
+// This allows failover to another model route on the same backend even when
+// that backend is at max_inflight, without exposing the freed slot to another
+// concurrent request.
+//
+// If no alternative route is available, the current reservation is restored.
 func (s *State) SwapReservation(
 	aliasName string,
 	current *Route,
@@ -199,10 +181,13 @@ func (s *State) SwapReservation(
 		return nil, ErrNoRoute
 	}
 
+	// Temporarily make the current slot available while still holding the
+	// routing mutex. No other request can take it during this operation.
 	currentBS.inflight--
 
 	selected := s.selectLocked(alias, attempted)
 	if selected == nil {
+		// There is nowhere to fail over, so keep the current reservation.
 		currentBS.inflight++
 		s.mu.Unlock()
 		return nil, ErrNoRoute
@@ -229,8 +214,8 @@ func (s *State) SwapReservation(
 	return selected, nil
 }
 
-// Release returns the capacity reserved for a route. It is called exactly once
-// per successful Reserve, whatever ends the attempt.
+// Release returns the capacity currently held by a route. A reservation is
+// either released here or transferred atomically by SwapReservation.
 func (s *State) Release(route *Route) {
 	if route == nil {
 		return

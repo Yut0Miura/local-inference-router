@@ -145,33 +145,28 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 
 		p.observe(route, metrics.ResultResponse, elapsed)
 
-	if reason, ok := retryableStatus(resp.StatusCode); ok {
-	// Transfer the current reservation to the next route atomically. This also
-	// allows another model route on the same backend to be selected when the
-	// backend is already at max_inflight.
-	next, nextErr := p.state.SwapReservation(alias, route, attempted)
-	if nextErr == nil {
-		resp.Body.Close()
+		if reason, ok := retryableStatus(resp.StatusCode); ok {
+			// Transfer the current reservation to the next route atomically. This
+			// also allows another model route on the same backend to be selected
+			// when the backend is already at max_inflight.
+			next, nextErr := p.state.SwapReservation(alias, route, attempted)
+			if nextErr == nil {
+				resp.Body.Close()
+				p.metrics.Failover(alias, reason)
+				p.logger.Info("failing over",
+					"alias", alias, "backend", route.Backend.Name, "status", resp.StatusCode)
+				route = next
+				continue
+			}
+			// No alternative: the upstream status is the honest answer and is
+			// forwarded as-is instead of a synthetic router error.
+		}
 
-		p.metrics.Failover(alias, reason)
-		p.logger.Info(
-			"failing over",
-			"alias", alias,
-			"backend", route.Backend.Name,
-			"status", resp.StatusCode,
-		)
-
-		route = next
-		continue
+		status, apiErr := p.forward(w, resp, route, alias)
+		p.state.Release(route)
+		return status, apiErr
 	}
-
-	// No alternative: the upstream status is the honest answer and is
-	// forwarded as-is instead of a synthetic router error.
 }
-
-status, apiErr := p.forward(w, resp, route, alias)
-p.state.Release(route)
-return status, apiErr
 
 // attempt performs one upstream request. The returned response body is open.
 func (p *Proxy) attempt(r *http.Request, route *Route, payload map[string]json.RawMessage) (*http.Response, time.Duration, error) {

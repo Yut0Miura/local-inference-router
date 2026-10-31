@@ -183,6 +183,110 @@ func TestCapacityIsSharedBetweenAliases(t *testing.T) {
 	}
 }
 
+func TestSwapReservationAllowsSameBackendRouteAtCapacity(t *testing.T) {
+	cfg := &config.Config{
+		Version: 1,
+		Listen:  "127.0.0.1:8080",
+		Backends: []config.BackendConfig{
+			backendCfg("shared", 1),
+		},
+		Aliases: []config.AliasConfig{{
+			Name: "chat",
+			Routes: []config.RouteConfig{
+				{
+					Backend:       "shared",
+					UpstreamModel: "model-a",
+					Priority:      10,
+				},
+				{
+					Backend:       "shared",
+					UpstreamModel: "model-b",
+					Priority:      20,
+				},
+			},
+		}},
+	}
+
+	state := newState(t, cfg)
+	healthy(state, "shared")
+
+	attempted := map[*router.Route]bool{}
+
+	first := reserve(t, state, attempted)
+	if first.UpstreamModel != "model-a" {
+		t.Fatalf("first model = %q, want model-a", first.UpstreamModel)
+	}
+
+	attempted[first] = true
+
+	next, err := state.SwapReservation("chat", first, attempted)
+	if err != nil {
+		t.Fatalf("swap reservation: %v", err)
+	}
+	if next.Backend.Name != "shared" {
+		t.Fatalf("next backend = %q, want shared", next.Backend.Name)
+	}
+	if next.UpstreamModel != "model-b" {
+		t.Fatalf("next model = %q, want model-b", next.UpstreamModel)
+	}
+
+	status := state.Snapshot()
+	if got := status.Backends[0].Inflight; got != 1 {
+		t.Fatalf("inflight after swap = %d, want 1", got)
+	}
+
+	state.Release(next)
+
+	status = state.Snapshot()
+	if got := status.Backends[0].Inflight; got != 0 {
+		t.Fatalf("inflight after release = %d, want 0", got)
+	}
+}
+
+func TestSwapReservationRestoresCurrentWhenNoAlternativeExists(t *testing.T) {
+	cfg := &config.Config{
+		Version: 1,
+		Listen:  "127.0.0.1:8080",
+		Backends: []config.BackendConfig{
+			backendCfg("shared", 1),
+		},
+		Aliases: []config.AliasConfig{{
+			Name: "chat",
+			Routes: []config.RouteConfig{
+				{
+					Backend:       "shared",
+					UpstreamModel: "model-a",
+					Priority:      10,
+				},
+			},
+		}},
+	}
+
+	state := newState(t, cfg)
+	healthy(state, "shared")
+
+	attempted := map[*router.Route]bool{}
+
+	current := reserve(t, state, attempted)
+	attempted[current] = true
+
+	if _, err := state.SwapReservation("chat", current, attempted); err == nil {
+		t.Fatal("swap must fail when no alternative route exists")
+	}
+
+	status := state.Snapshot()
+	if got := status.Backends[0].Inflight; got != 1 {
+		t.Fatalf("inflight after failed swap = %d, want restored value 1", got)
+	}
+
+	state.Release(current)
+
+	status = state.Snapshot()
+	if got := status.Backends[0].Inflight; got != 0 {
+		t.Fatalf("inflight after release = %d, want 0", got)
+	}
+}
+
 func TestAttemptedRouteIsExcluded(t *testing.T) {
 	state := newState(t, threeRouteConfig())
 	healthy(state, "a", "b", "c")
