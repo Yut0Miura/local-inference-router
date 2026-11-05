@@ -42,7 +42,7 @@ Both the inference and health clients refuse to follow redirects. A `3xx` is ret
 
 ## Backend URL Trust
 
-`base_url` must be an origin: `http` or `https`, a host, and nothing else. A path, query, fragment or embedded credentials are rejected. This keeps the upstream surface exactly as wide as the operator wrote it.
+`base_url` must be an origin: `http` or `https`, a non-empty host and an optional valid port from `1` to `65535`. IPv6 literals must use URL brackets. A path, query, fragment or embedded credentials are rejected. This keeps the upstream surface exactly as wide as the operator wrote it.
 
 ## Prompt & Response Privacy
 

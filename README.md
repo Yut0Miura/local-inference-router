@@ -141,7 +141,7 @@ aliases:
 | `listen` | `host:port`. Empty means `127.0.0.1:8080`; exposure beyond loopback must be written out explicitly |
 | `bearer_token_env` | name of the environment variable holding the inbound token. Empty disables inbound authentication |
 | `backends[].kind` | `ollama`, `llama_cpp` or `vllm`, case-sensitive |
-| `backends[].base_url` | an origin only: scheme and host, no path, query, fragment or credentials |
+| `backends[].base_url` | an `http` or `https` origin only: a non-empty host with an optional port from `1` to `65535`, and no path, query, fragment or credentials |
 | `backends[].max_inflight` | `1`–`100000` concurrent inference requests for this backend |
 | `backends[].response_header_timeout_ms` | `1000`–`900000`, default `120000`. Applies until upstream headers arrive, not to the stream that follows |
 | `backends[].bearer_token_env` | environment variable holding this backend's own token |

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -25,10 +26,14 @@ func ParseBaseURL(raw string) (*url.URL, error) {
 	switch {
 	case parsed.Scheme != "http" && parsed.Scheme != "https":
 		return nil, errors.New("must use http or https")
-	case parsed.Host == "":
+	case parsed.Hostname() == "":
 		return nil, errors.New("must contain a host")
 	case parsed.User != nil:
 		return nil, errors.New("must not contain credentials")
+	case strings.HasSuffix(parsed.Host, ":"):
+		return nil, errors.New("must contain a valid port")
+	case strings.Count(parsed.Host, ":") > 1 && !strings.HasPrefix(parsed.Host, "["):
+		return nil, errors.New("IPv6 host must use brackets")
 	case parsed.RawQuery != "" || parsed.ForceQuery:
 		return nil, errors.New("must not contain a query")
 	case parsed.Fragment != "":
@@ -37,6 +42,13 @@ func ParseBaseURL(raw string) (*url.URL, error) {
 		return nil, errors.New("must not contain a path")
 	case parsed.Opaque != "":
 		return nil, errors.New("must be an absolute origin URL")
+	}
+
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return nil, errors.New("port must be between 1 and 65535")
+		}
 	}
 
 	return &url.URL{Scheme: parsed.Scheme, Host: parsed.Host}, nil

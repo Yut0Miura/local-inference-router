@@ -37,6 +37,45 @@ func TestValidateRejects(t *testing.T) {
 		{"backend url with fragment", replace(`base_url: "http://127.0.0.1:11434"`, `base_url: "http://127.0.0.1:11434#frag"`), "must not contain a fragment"},
 		{"backend url scheme", replace(`base_url: "http://127.0.0.1:11434"`, `base_url: "ftp://127.0.0.1:11434"`), "must use http or https"},
 		{"backend url empty", replace(`base_url: "http://127.0.0.1:11434"`, `base_url: ""`), "must not be empty"},
+		{"backend url without hostname",
+			replace(
+				`base_url: "http://127.0.0.1:11434"`,
+				`base_url: "http://:80"`,
+			),
+			"must contain a host",
+		},
+
+		{"backend url with zero port",
+			replace(
+				`base_url: "http://127.0.0.1:11434"`,
+				`base_url: "http://example.com:0"`,
+			),
+			"port must be between 1 and 65535",
+		},
+
+		{"backend url with oversized port",
+			replace(
+				`base_url: "http://127.0.0.1:11434"`,
+				`base_url: "http://example.com:99999"`,
+			),
+			"port must be between 1 and 65535",
+		},
+
+		{"backend url with empty port",
+			replace(
+				`base_url: "http://127.0.0.1:11434"`,
+				`base_url: "http://example.com:"`,
+			),
+			"must contain a valid port",
+		},
+
+		{"backend url with unbracketed ipv6",
+			replace(
+				`base_url: "http://127.0.0.1:11434"`,
+				`base_url: "http://::1"`,
+			),
+			"is not a valid URL",
+		},
 		{"max_inflight zero", replace("max_inflight: 4", "max_inflight: 0"), "max_inflight: must be between"},
 		{"max_inflight too large", replace("max_inflight: 4", "max_inflight: 100001"), "max_inflight: must be between"},
 		{"timeout too small", replace("response_header_timeout_ms: 120000", "response_header_timeout_ms: 999"), "response_header_timeout_ms"},
@@ -171,6 +210,45 @@ func TestBaseURLWithTrailingSlashIsAllowed(t *testing.T) {
 	content := replace(`base_url: "http://127.0.0.1:11434"`, `base_url: "http://127.0.0.1:11434/"`)
 	if err := decodeAndValidate(t, content); err != nil {
 		t.Fatalf("a trailing slash origin must be accepted: %v", err)
+	}
+}
+
+func TestBaseURLAcceptsValidHostAndPortForms(t *testing.T) {
+	cases := []string{
+		"http://example.com",
+		"http://example.com:8080",
+		"https://example.com",
+		"https://example.com:443",
+		"http://[::1]",
+		"http://[::1]:8080",
+	}
+
+	for _, raw := range cases {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := config.ParseBaseURL(raw); err != nil {
+				t.Fatalf("ParseBaseURL(%q): %v", raw, err)
+			}
+		})
+	}
+}
+
+func TestBaseURLPortBoundaries(t *testing.T) {
+	for _, raw := range []string{
+		"http://example.com:1",
+		"http://example.com:65535",
+	} {
+		if _, err := config.ParseBaseURL(raw); err != nil {
+			t.Fatalf("ParseBaseURL(%q): %v", raw, err)
+		}
+	}
+
+	for _, raw := range []string{
+		"http://example.com:0",
+		"http://example.com:65536",
+	} {
+		if _, err := config.ParseBaseURL(raw); err == nil {
+			t.Fatalf("ParseBaseURL(%q) succeeded, want invalid port", raw)
+		}
 	}
 }
 
