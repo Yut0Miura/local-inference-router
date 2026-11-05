@@ -141,7 +141,7 @@ aliases:
 | `listen` | `host:port`. Empty means `127.0.0.1:8080`; exposure beyond loopback must be written out explicitly |
 | `bearer_token_env` | name of the environment variable holding the inbound token. Empty disables inbound authentication |
 | `backends[].kind` | `ollama`, `llama_cpp` or `vllm`, case-sensitive |
-| `backends[].base_url` | an `http` or `https` origin only: a non-empty host with an optional port from `1` to `65535`, and no path, query, fragment or credentials |
+| `backends[].base_url` | an `http` or `https` origin only: a non-empty host with an optional port from `1` to `65535`, and no path, query, fragment or credentials; two backend entries may not resolve to the same normalized origin |
 | `backends[].max_inflight` | `1`–`100000` concurrent inference requests for this backend |
 | `backends[].response_header_timeout_ms` | `1000`–`900000`, default `120000`. Applies until upstream headers arrive, not to the stream that follows |
 | `backends[].bearer_token_env` | environment variable holding this backend's own token |
@@ -191,6 +191,8 @@ Selection and the reservation that follows happen under one lock, so concurrent 
 `max_inflight` belongs to the backend. If several aliases point at the same backend, they share it. A streaming request stays in flight until the stream ends.
 
 When failover moves between two routes that use the same backend, the existing reservation is transferred atomically under the routing mutex. This lets a different `upstream_model` reuse the same backend slot without temporarily exceeding `max_inflight` or exposing that slot to another request.
+
+Backend names cannot be used to split capacity for one physical origin. Configuration validation rejects duplicate normalized origins, including differences that are only host casing, a trailing slash or an explicitly written default port.
 
 There is no queue: if nothing is both healthy and below capacity, the router answers `503` immediately.
 

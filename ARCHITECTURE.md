@@ -27,7 +27,7 @@ Everything a request can reach comes from the configuration file. A client can p
 
 One YAML document, `version: 1`, decoded with unknown fields rejected. A file larger than 1 MiB is refused before decoding, and an empty file or a second document is an error.
 
-Validation covers listen address, backend kinds, base URL shape, capacity and timeout bounds, environment variable names, alias and route references, priorities and duplicates. It never touches the network, so `validate` is safe to run anywhere.
+Validation covers listen address, backend kinds, base URL shape, unique normalized backend origins, capacity and timeout bounds, environment variable names, alias and route references, priorities and duplicates. It never touches the network, so `validate` is safe to run anywhere.
 
 Defaults: `listen` becomes `127.0.0.1:8080`, `response_header_timeout_ms` becomes `120000`.
 
@@ -48,6 +48,8 @@ Aliases and backends keep configuration order, which makes status output and tie
 ## Capacity Reservation
 
 Selection and the increment of the chosen backend's in-flight counter happen under one lock. Two concurrent requests therefore cannot both see the last free slot.
+
+One configured backend corresponds to one normalized HTTP origin. Configuration validation rejects duplicate origins under different backend names, so `max_inflight` cannot be bypassed by declaring the same runtime twice.
 
 A reservation is either released when an attempt is finished or atomically transferred to another route during retryable-status failover. Counters never go negative, and a transfer never exposes the temporarily freed slot to another concurrent request.
 

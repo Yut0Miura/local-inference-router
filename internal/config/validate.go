@@ -63,6 +63,7 @@ func validateBackends(backends []BackendConfig) (map[string]struct{}, error) {
 	}
 
 	known := make(map[string]struct{}, len(backends))
+	origins := make(map[string]string, len(backends))
 	for i, backend := range backends {
 		where := fmt.Sprintf("config.backends[%d]", i)
 
@@ -80,7 +81,8 @@ func validateBackends(backends []BackendConfig) (map[string]struct{}, error) {
 			return nil, fmt.Errorf("%s.kind: must be one of ollama, llama_cpp, vllm", where)
 		}
 
-		if _, err := ParseBaseURL(backend.BaseURL); err != nil {
+		baseURL, err := ParseBaseURL(backend.BaseURL)
+		if err != nil {
 			return nil, fmt.Errorf("%s.base_url: %w", where, err)
 		}
 		if backend.MaxInflight < MinMaxInflight || backend.MaxInflight > MaxMaxInflight {
@@ -95,6 +97,19 @@ func validateBackends(backends []BackendConfig) (map[string]struct{}, error) {
 		if err := validateEnvName(backend.BearerTokenEnv); err != nil {
 			return nil, fmt.Errorf("%s.bearer_token_env: %w", where, err)
 		}
+
+		origin := canonicalOriginKey(baseURL)
+
+		if previous, exists := origins[origin]; exists {
+			return nil, fmt.Errorf(
+				"%s.base_url: duplicate backend origin %q already used by backend %q",
+				where,
+				origin,
+				previous,
+			)
+		}
+
+		origins[origin] = backend.Name
 	}
 	return known, nil
 }

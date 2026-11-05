@@ -44,6 +44,8 @@ Both the inference and health clients refuse to follow redirects. A `3xx` is ret
 
 `base_url` must be an origin: `http` or `https`, a non-empty host and an optional valid port from `1` to `65535`. IPv6 literals must use URL brackets. A path, query, fragment or embedded credentials are rejected. This keeps the upstream surface exactly as wide as the operator wrote it.
 
+Two backend entries may not identify the same normalized origin. This prevents separate backend names from creating independent capacity counters or fake failover routes for the same upstream service.
+
 ## Prompt & Response Privacy
 
 Prompts, messages, request bodies and response bodies are never logged. Streaming responses are relayed byte for byte and are never inspected or stored. Logs carry alias names, backend names, statuses, durations and error categories — enough to operate the router, not to reconstruct traffic.

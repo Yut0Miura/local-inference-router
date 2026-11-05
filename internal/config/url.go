@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -52,6 +53,34 @@ func ParseBaseURL(raw string) (*url.URL, error) {
 	}
 
 	return &url.URL{Scheme: parsed.Scheme, Host: parsed.Host}, nil
+}
+
+// canonicalOriginKey returns one stable key for a validated backend origin.
+// Host names are case-insensitive, IP literals are normalized and an omitted
+// default port is made explicit.
+func canonicalOriginKey(base *url.URL) string {
+	scheme := strings.ToLower(base.Scheme)
+
+	host := strings.ToLower(base.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+
+	port := base.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	} else if number, err := strconv.Atoi(port); err == nil {
+		// ParseBaseURL has already validated the port. Re-encoding it removes
+		// harmless formatting differences such as leading zeroes.
+		port = strconv.Itoa(number)
+	}
+
+	return scheme + "://" + net.JoinHostPort(host, port)
 }
 
 // EndpointURL returns the base URL with a fixed path. URLs are built through

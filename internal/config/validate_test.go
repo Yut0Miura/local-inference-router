@@ -127,6 +127,142 @@ aliases:
 	}
 }
 
+func TestValidateRejectsDuplicateBackendOrigin(t *testing.T) {
+	cases := []struct {
+		name   string
+		first  string
+		second string
+	}{
+		{
+			name:   "exact same origin",
+			first:  "http://model.internal:8000",
+			second: "http://model.internal:8000",
+		},
+		{
+			name:   "host casing and default http port",
+			first:  "http://MODEL.INTERNAL",
+			second: "http://model.internal:80/",
+		},
+		{
+			name:   "host casing and default https port",
+			first:  "https://MODEL.INTERNAL",
+			second: "https://model.internal:443/",
+		},
+		{
+			name:   "equivalent ipv6 literals",
+			first:  "http://[::1]",
+			second: "http://[0:0:0:0:0:0:0:1]:80",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := `version: 1
+listen: "127.0.0.1:8080"
+backends:
+  - name: "primary"
+    kind: "ollama"
+    base_url: "` + tc.first + `"
+    max_inflight: 2
+    response_header_timeout_ms: 120000
+
+  - name: "backup"
+    kind: "vllm"
+    base_url: "` + tc.second + `"
+    max_inflight: 2
+    response_header_timeout_ms: 120000
+
+aliases:
+  - name: "chat"
+    routes:
+      - backend: "primary"
+        upstream_model: "model-a"
+        priority: 10
+`
+
+			err := decodeAndValidate(t, content)
+			if err == nil {
+				t.Fatal("expected duplicate backend origin error")
+			}
+
+			if !strings.Contains(err.Error(), "duplicate backend origin") {
+				t.Fatalf(
+					"error %q does not contain duplicate backend origin",
+					err.Error(),
+				)
+			}
+
+			if !strings.Contains(err.Error(), `backend "primary"`) {
+				t.Fatalf(
+					"error %q does not identify the first backend",
+					err.Error(),
+				)
+			}
+		})
+	}
+}
+
+func TestValidateAllowsDistinctBackendOrigins(t *testing.T) {
+	cases := []struct {
+		name   string
+		first  string
+		second string
+	}{
+		{
+			name:   "different hosts",
+			first:  "http://model-a.internal:8000",
+			second: "http://model-b.internal:8000",
+		},
+		{
+			name:   "different ports",
+			first:  "http://model.internal:8000",
+			second: "http://model.internal:8001",
+		},
+		{
+			name:   "different schemes",
+			first:  "http://model.internal",
+			second: "https://model.internal",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := `version: 1
+listen: "127.0.0.1:8080"
+backends:
+  - name: "primary"
+    kind: "ollama"
+    base_url: "` + tc.first + `"
+    max_inflight: 2
+    response_header_timeout_ms: 120000
+
+  - name: "backup"
+    kind: "vllm"
+    base_url: "` + tc.second + `"
+    max_inflight: 2
+    response_header_timeout_ms: 120000
+
+aliases:
+  - name: "chat"
+    routes:
+      - backend: "primary"
+        upstream_model: "model-a"
+        priority: 10
+      - backend: "backup"
+        upstream_model: "model-b"
+        priority: 20
+`
+
+			if err := decodeAndValidate(t, content); err != nil {
+				t.Fatalf(
+					"distinct backend origins must be allowed: %v",
+					err,
+				)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsDuplicateAliasAndRoute(t *testing.T) {
 	base := `version: 1
 listen: "127.0.0.1:8080"

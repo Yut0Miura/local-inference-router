@@ -31,7 +31,7 @@ func backendCfg(name string, maxInflight int) config.BackendConfig {
 	return config.BackendConfig{
 		Name:                    name,
 		Kind:                    config.KindOllama,
-		BaseURL:                 "http://127.0.0.1:11434",
+		BaseURL:                 "http://" + name + ".test:11434",
 		MaxInflight:             maxInflight,
 		ResponseHeaderTimeoutMS: 1000,
 	}
