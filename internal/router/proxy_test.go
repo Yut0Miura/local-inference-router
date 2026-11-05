@@ -510,8 +510,17 @@ func TestResponseHeadersAreFiltered(t *testing.T) {
 	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Model-Server", "vllm")
+
+		w.Header().Add("Connection", "X-Internal-Hop")
+		w.Header().Add("Connection", "x-second-hop")
+
+		w.Header().Set("X-Internal-Hop", "secret-one")
+		w.Header().Set("X-Second-Hop", "secret-two")
+
+		w.Header().Set("Alt-Svc", `h2="backend.internal:443"`)
 		w.Header().Set("Set-Cookie", "session=leak")
 		w.Header().Set("Server", "upstream/1.0")
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"ok":true}`)
 	})
@@ -524,7 +533,15 @@ func TestResponseHeadersAreFiltered(t *testing.T) {
 	if rec.Header().Get("X-Model-Server") != "vllm" {
 		t.Fatal("end-to-end headers must be copied")
 	}
-	for _, name := range []string{"Set-Cookie", "Server", "Transfer-Encoding", "Connection"} {
+	for _, name := range []string{
+		"Alt-Svc",
+		"Connection",
+		"Set-Cookie",
+		"Server",
+		"Transfer-Encoding",
+		"X-Internal-Hop",
+		"X-Second-Hop",
+	} {
 		if got := rec.Header().Get(name); got != "" {
 			t.Fatalf("%s must not be copied downstream: %q", name, got)
 		}

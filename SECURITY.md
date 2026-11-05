@@ -26,6 +26,8 @@ Each backend may have its own `bearer_token_env`. That token is attached to infe
 
 A client's `Authorization` header is never copied upstream, and a backend token never reaches a client. Client `Cookie` headers are dropped, and `Set-Cookie` from a backend is not forwarded downstream. Tokens are never logged and never appear in metric labels or in `/router/status`.
 
+Response hop-by-hop headers are not forwarded downstream. The router also removes every response header named by `Connection`, regardless of casing or which `Connection` field-value names it, and drops `Alt-Svc` so a backend cannot advertise an alternate upstream endpoint to clients.
+
 ## Request Size Bounds
 
 Chat bodies are limited to 4 MiB with `http.MaxBytesReader`; larger bodies get `413`. Compressed request bodies are rejected with `415` rather than decoded. Request headers are limited to 1 MiB. The configuration file is limited to 1 MiB.

@@ -1,11 +1,16 @@
 package router
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // hopByHopAndUnsafe are response headers the router never copies downstream.
 // Transfer framing is left to Go; Set-Cookie and Server are dropped so the
-// backend cannot set state or advertise itself through the router.
+// backend cannot set state or advertise itself through the router. Alt-Svc is
+// also dropped so an upstream cannot advertise an alternate backend endpoint.
 var hopByHopAndUnsafe = map[string]struct{}{
+	"Alt-Svc":             {},
 	"Connection":          {},
 	"Keep-Alive":          {},
 	"Proxy-Authenticate":  {},
@@ -32,14 +37,40 @@ func setUpstreamHeaders(upstream *http.Request, client *http.Request, route *Rou
 	route.Backend.Authorize(upstream)
 }
 
-// copyResponseHeaders copies end-to-end response headers downstream.
+// copyResponseHeaders copies safe end-to-end response headers downstream.
+// Headers nominated by Connection are removed in addition to the fixed denylist.
 func copyResponseHeaders(dst http.Header, src http.Header) {
+	connectionHeaders := connectionNominatedHeaders(src)
+
 	for name, values := range src {
-		if _, skip := hopByHopAndUnsafe[http.CanonicalHeaderKey(name)]; skip {
+		canonicalName := http.CanonicalHeaderKey(name)
+
+		if _, skip := hopByHopAndUnsafe[canonicalName]; skip {
 			continue
 		}
+		if _, skip := connectionHeaders[canonicalName]; skip {
+			continue
+		}
+
 		for _, value := range values {
 			dst.Add(name, value)
 		}
 	}
+}
+
+func connectionNominatedHeaders(header http.Header) map[string]struct{} {
+	nominated := make(map[string]struct{})
+
+	for _, value := range header.Values("Connection") {
+		for _, token := range strings.Split(value, ",") {
+			name := strings.TrimSpace(token)
+			if name == "" {
+				continue
+			}
+
+			nominated[http.CanonicalHeaderKey(name)] = struct{}{}
+		}
+	}
+
+	return nominated
 }
