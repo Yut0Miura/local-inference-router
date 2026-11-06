@@ -172,7 +172,7 @@ func TestFailoverOnRetryableStatuses(t *testing.T) {
 			first := newUpstream(t, statusHandler(status, `{"error":"busy"}`))
 			second := newUpstream(t, statusHandler(http.StatusOK, `{"ok":true}`))
 
-			proxy, _ := buildProxy(
+			proxy, state := buildProxy(
 				t,
 				[]string{first.server.URL, second.server.URL},
 				nil,
@@ -194,6 +194,15 @@ func TestFailoverOnRetryableStatuses(t *testing.T) {
 					"attempts: first=%d second=%d",
 					first.requests.Load(),
 					second.requests.Load(),
+				)
+			}
+
+			snapshot := state.Snapshot()
+
+			if !snapshot.Backends[0].Healthy {
+				t.Fatalf(
+					"HTTP status %d must not quarantine a reachable backend",
+					status,
 				)
 			}
 
@@ -392,18 +401,138 @@ func TestTransportFailover(t *testing.T) {
 	}
 }
 
+func TestTransportFailureQuarantinesBackend(t *testing.T) {
+	broken := newUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Errorf("response writer does not support hijacking")
+			return
+		}
+
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("hijack connection: %v", err)
+			return
+		}
+
+		_ = conn.Close()
+	})
+
+	alive := newUpstream(t, statusHandler(
+		http.StatusOK,
+		`{"ok":true}`,
+	))
+
+	proxy, state := buildProxy(
+		t,
+		[]string{
+			broken.server.URL,
+			alive.server.URL,
+		},
+		nil,
+		[]int{10, 20},
+	)
+
+	_, status, apiErr := serve(
+		t,
+		proxy,
+		chatPayload(t, `{"model":"chat"}`),
+	)
+
+	if apiErr != nil || status != http.StatusOK {
+		t.Fatalf(
+			"first request: status = %d, err = %+v",
+			status,
+			apiErr,
+		)
+	}
+
+	snapshot := state.Snapshot()
+
+	if snapshot.Backends[0].Healthy {
+		t.Fatal("backend a must be unhealthy after a transport failure")
+	}
+	if !snapshot.Backends[1].Healthy {
+		t.Fatal("backend b must remain healthy")
+	}
+
+	if broken.requests.Load() != 1 {
+		t.Fatalf(
+			"broken backend requests = %d, want 1",
+			broken.requests.Load(),
+		)
+	}
+	if alive.requests.Load() != 1 {
+		t.Fatalf(
+			"healthy backend requests = %d, want 1",
+			alive.requests.Load(),
+		)
+	}
+
+	// A new request must skip the quarantined higher-priority backend.
+	_, status, apiErr = serve(
+		t,
+		proxy,
+		chatPayload(t, `{"model":"chat"}`),
+	)
+
+	if apiErr != nil || status != http.StatusOK {
+		t.Fatalf(
+			"second request: status = %d, err = %+v",
+			status,
+			apiErr,
+		)
+	}
+
+	if broken.requests.Load() != 1 {
+		t.Fatalf(
+			"quarantined backend was retried; requests = %d, want 1",
+			broken.requests.Load(),
+		)
+	}
+	if alive.requests.Load() != 2 {
+		t.Fatalf(
+			"healthy backend requests = %d, want 2",
+			alive.requests.Load(),
+		)
+	}
+
+	// Simulate the next successful periodic health probe.
+	state.SetHealth("a", true)
+
+	snapshot = state.Snapshot()
+
+	if !snapshot.Backends[0].Healthy {
+		t.Fatal("a successful health probe must restore backend a")
+	}
+}
+
 func TestFinalTransportFailure(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	deadURL := dead.URL
 	dead.Close()
 
-	proxy, _ := buildProxy(t, []string{deadURL}, nil, nil)
+	proxy, state := buildProxy(t, []string{deadURL}, nil, nil)
 	_, _, apiErr := serve(t, proxy, chatPayload(t, `{"model":"chat"}`))
 	if apiErr == nil {
 		t.Fatal("expected a router error")
 	}
 	if apiErr.Status != http.StatusBadGateway || apiErr.Code != "upstream_unavailable" {
 		t.Fatalf("error = %+v, want 502 upstream_unavailable", apiErr)
+	}
+
+	snapshot := state.Snapshot()
+
+	if len(snapshot.Backends) != 1 {
+		t.Fatalf("backend count = %d, want 1", len(snapshot.Backends))
+	}
+
+	if snapshot.Backends[0].Healthy {
+		t.Fatal("backend must be unhealthy after the final transport failure")
+	}
+
+	if state.Ready() {
+		t.Fatal("router must not remain ready when its only backend transport fails")
 	}
 }
 
@@ -416,13 +545,23 @@ func TestFinalTimeoutFailure(t *testing.T) {
 	defer close(release)
 
 	// response_header_timeout_ms is 1000 in the test configuration.
-	proxy, _ := buildProxy(t, []string{slow.server.URL}, nil, nil)
+	proxy, state := buildProxy(t, []string{slow.server.URL}, nil, nil)
 	_, _, apiErr := serve(t, proxy, chatPayload(t, `{"model":"chat"}`))
 	if apiErr == nil {
 		t.Fatal("expected a router error")
 	}
 	if apiErr.Status != http.StatusGatewayTimeout || apiErr.Code != "upstream_timeout" {
 		t.Fatalf("error = %+v, want 504 upstream_timeout", apiErr)
+	}
+
+	snapshot := state.Snapshot()
+
+	if snapshot.Backends[0].Healthy {
+		t.Fatal("backend must be unhealthy after a response-header timeout")
+	}
+
+	if state.Ready() {
+		t.Fatal("router must not remain ready after its only backend times out")
 	}
 }
 
@@ -470,6 +609,12 @@ func TestClientCancellationDoesNotFailOver(t *testing.T) {
 		if status.Inflight != 0 {
 			t.Fatalf("backend %q kept a reservation after cancellation", status.Name)
 		}
+	}
+
+	snapshot := state.Snapshot()
+
+	if !snapshot.Backends[0].Healthy {
+		t.Fatal("client cancellation must not quarantine the backend")
 	}
 }
 

@@ -205,6 +205,8 @@ Before that point the router tries the next route when:
 - the upstream connection, DNS, TLS or response-header timeout fails, or
 - the upstream answers `429`, `502`, `503` or `504`.
 
+Transport failures therefore affect both the current request and subsequent route selection: failover may serve the current request, while quarantine prevents following requests from repeatedly probing the same known-failing backend.
+
 It does **not** fail over when:
 
 - the client cancels the request;
@@ -238,6 +240,8 @@ Chat requests must be `application/json`, must not be compressed and must be at 
 ## Health & Readiness
 
 Each backend is checked on its own schedule: immediately at startup, then every 5 seconds, with a 2-second timeout. Only HTTP `200` counts as healthy; the body is ignored. Health checks do not consume `max_inflight`.
+
+A transport-level inference failure, including a response-header timeout, marks that backend unhealthy immediately rather than waiting for the next scheduled check. New requests skip it until a later successful health probe restores it. Client cancellation and HTTP response statuses do not change this health flag.
 
 `GET /healthz` reports process liveness and returns `ok`.
 

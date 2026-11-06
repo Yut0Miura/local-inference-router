@@ -39,6 +39,8 @@ Health checks use a separate HTTP client and never consume `max_inflight`. If a 
 
 A backend starts as "not checked", which is treated as not healthy. Health transitions are logged by backend name.
 
+An inference transport failure or response-header timeout immediately marks that backend unhealthy in routing state instead of waiting for the next periodic probe. A later successful health probe restores it. Client cancellation and ordinary HTTP response statuses do not change backend health.
+
 ## Routing State
 
 One mutex protects health flags, in-flight counters and reservations. The state also answers readiness and `/router/status` from the same data, so those views cannot disagree with routing decisions.
@@ -74,7 +76,7 @@ POST /v1/chat/completions
 
 The router may try another route only while nothing has been written downstream. After `WriteHeader` the response is committed and the attempt is final: a later read error is logged, never retried.
 
-Retryable before commitment: transport, DNS, TLS and response-header-timeout failures, and the statuses `429`, `502`, `503`, `504`. Not retryable: client cancellation and every other status, including `3xx`, `401`, `404` and `500`.
+Retryable before commitment: transport, DNS, TLS and response-header-timeout failures, and the statuses `429`, `502`, `503`, `504`. Transport-level failures also quarantine the failed backend immediately, so subsequent requests skip it until a periodic health probe succeeds. Retryable HTTP statuses still permit failover but do not themselves change backend health. Not retryable: client cancellation and every other status, including `3xx`, `401`, `404` and `500`.
 
 Each route is tried at most once, there is no backoff, and the attempt count is bounded by the number of routes in the alias. On a retryable status the router atomically transfers the current reservation to the next eligible route while holding the routing mutex. The current slot is temporarily made available only inside that critical section, which allows failover between different model routes on the same backend at max_inflight without letting another concurrent request steal the slot. If no alternative exists, the current reservation is restored.
 

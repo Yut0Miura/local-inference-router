@@ -116,20 +116,26 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 		resp, elapsed, attemptErr := p.attempt(r, route, payload)
 
 		if attemptErr != nil {
-			p.state.Release(route)
-
 			if isCanceled(r.Context(), attemptErr) {
 				// The client left. This is not a backend failure and must not
-				// trigger failover.
+				// quarantine the backend or trigger failover.
+				p.state.Release(route)
 				p.observe(route, metrics.ResultCanceled, elapsed)
 				return StatusClientClosed, nil
 			}
+
+			// A transport-level inference failure is stronger evidence than the last
+			// periodic health result. Remove this backend from new route selection
+			// immediately; a later successful health probe will restore it.
+			p.state.SetHealth(route.Backend.Name, false)
+			p.state.Release(route)
 
 			reason, final := metrics.ReasonTransportError, errUpstreamUnavailable
 			result := metrics.ResultTransportError
 			if isTimeout(attemptErr) {
 				reason, final, result = metrics.ReasonTimeout, errUpstreamTimeout, metrics.ResultTimeout
 			}
+
 			p.observe(route, result, elapsed)
 			p.logger.Warn("upstream attempt failed",
 				"alias", alias, "backend", route.Backend.Name, "reason", reason)
@@ -138,6 +144,7 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 			if nextErr != nil {
 				return 0, final
 			}
+
 			p.metrics.Failover(alias, reason)
 			route = next
 			continue
