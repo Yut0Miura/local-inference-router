@@ -10,6 +10,7 @@ backends:
     base_url: "http://127.0.0.1:11434"
     max_inflight: 4
     response_header_timeout_ms: 120000
+    response_idle_timeout_ms: 120000
     bearer_token_env: ""
 
 aliases:

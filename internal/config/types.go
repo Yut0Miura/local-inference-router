@@ -9,6 +9,7 @@ package config
 const (
 	DefaultListen                  = "127.0.0.1:8080"
 	DefaultResponseHeaderTimeoutMS = 120000
+	DefaultResponseIdleTimeoutMS   = 120000
 
 	MaxConfigBytes = 1048576
 )
@@ -29,6 +30,7 @@ type BackendConfig struct {
 	BaseURL                 string `yaml:"base_url"`
 	MaxInflight             int    `yaml:"max_inflight"`
 	ResponseHeaderTimeoutMS int    `yaml:"response_header_timeout_ms"`
+	ResponseIdleTimeoutMS   int    `yaml:"response_idle_timeout_ms"`
 	BearerTokenEnv          string `yaml:"bearer_token_env"`
 }
 

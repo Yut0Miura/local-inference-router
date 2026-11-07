@@ -18,6 +18,7 @@ backends:
     base_url: "http://127.0.0.1:11434"
     max_inflight: 4
     response_header_timeout_ms: 120000
+    response_idle_timeout_ms: 120000
     bearer_token_env: ""
 aliases:
   - name: "local-chat"
@@ -102,6 +103,28 @@ func TestResponseHeaderTimeoutDefault(t *testing.T) {
 	}
 	if got := cfg.Backends[0].ResponseHeaderTimeoutMS; got != config.DefaultResponseHeaderTimeoutMS {
 		t.Fatalf("response_header_timeout_ms = %d, want %d", got, config.DefaultResponseHeaderTimeoutMS)
+	}
+}
+
+func TestResponseIdleTimeoutDefault(t *testing.T) {
+	content := strings.Replace(
+		validConfig,
+		"    response_idle_timeout_ms: 120000\n",
+		"",
+		1,
+	)
+
+	cfg, err := config.Load(writeConfig(t, content))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if got := cfg.Backends[0].ResponseIdleTimeoutMS; got != config.DefaultResponseIdleTimeoutMS {
+		t.Fatalf(
+			"response_idle_timeout_ms = %d, want %d",
+			got,
+			config.DefaultResponseIdleTimeoutMS,
+		)
 	}
 }
 

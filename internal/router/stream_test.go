@@ -193,3 +193,81 @@ func TestNonStreamingResponseIsRelayed(t *testing.T) {
 
 var _ http.ResponseWriter = (*nonFlushingWriter)(nil)
 var _ = router.StatusClientClosed
+
+func TestResponseIdleTimeoutReleasesStalledStream(t *testing.T) {
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, _ := w.(http.Flusher)
+
+		_, _ = io.WriteString(w, "data: first\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		// buildProxy configures a 1 second idle timeout.
+		time.Sleep(2 * time.Second)
+	})
+
+	proxy, state := buildProxy(
+		t,
+		[]string{up.server.URL},
+		nil,
+		nil,
+	)
+
+	started := time.Now()
+
+	rec, status, apiErr := serve(
+		t,
+		proxy,
+		chatPayload(t, `{"model":"chat","stream":true}`),
+	)
+
+	if apiErr != nil {
+		t.Fatalf("committed stream returned router error: %+v", apiErr)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if !strings.Contains(rec.Body.String(), "data: first") {
+		t.Fatalf("body = %q, want first streamed event", rec.Body.String())
+	}
+	if time.Since(started) >= 2*time.Second {
+		t.Fatal("router waited for the stalled upstream instead of applying the idle timeout")
+	}
+
+	if got := state.Snapshot().Backends[0].Inflight; got != 0 {
+		t.Fatalf("inflight = %d, want 0 after idle timeout", got)
+	}
+}
+
+func TestResponseIdleTimeoutResetsWhenDataArrives(t *testing.T) {
+	up := newUpstream(t, sseHandler(
+		[]string{
+			"data: one\n\n",
+			"data: two\n\n",
+			"data: three\n\n",
+		},
+		600*time.Millisecond,
+	))
+
+	proxy, _ := buildProxy(t, []string{up.server.URL}, nil, nil)
+
+	rec, status, apiErr := serve(
+		t,
+		proxy,
+		chatPayload(t, `{"model":"chat","stream":true}`),
+	)
+
+	if apiErr != nil || status != http.StatusOK {
+		t.Fatalf("status = %d, err = %+v", status, apiErr)
+	}
+
+	for _, want := range []string{"one", "two", "three"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("body = %q, missing %q", rec.Body.String(), want)
+		}
+	}
+}

@@ -38,6 +38,7 @@ func newHarness(t *testing.T, upstreamURL, inboundToken string) *harness {
 			BaseURL:                 upstreamURL,
 			MaxInflight:             4,
 			ResponseHeaderTimeoutMS: 1000,
+			ResponseIdleTimeoutMS:   1000,
 		}},
 		Aliases: []config.AliasConfig{{
 			Name:   "local-chat",

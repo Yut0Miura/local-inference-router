@@ -15,6 +15,9 @@ const (
 	MinResponseHeaderTimeoutMS = 1000
 	MaxResponseHeaderTimeoutMS = 900000
 
+	MinResponseIdleTimeoutMS = 1000
+	MaxResponseIdleTimeoutMS = 900000
+
 	MaxPriority = 1000000
 
 	maxBackendNameLen   = 64
@@ -93,6 +96,15 @@ func validateBackends(backends []BackendConfig) (map[string]struct{}, error) {
 			backend.ResponseHeaderTimeoutMS > MaxResponseHeaderTimeoutMS {
 			return nil, fmt.Errorf("%s.response_header_timeout_ms: must be between %d and %d",
 				where, MinResponseHeaderTimeoutMS, MaxResponseHeaderTimeoutMS)
+		}
+		if backend.ResponseIdleTimeoutMS < MinResponseIdleTimeoutMS ||
+			backend.ResponseIdleTimeoutMS > MaxResponseIdleTimeoutMS {
+			return nil, fmt.Errorf(
+				"%s.response_idle_timeout_ms: must be between %d and %d",
+				where,
+				MinResponseIdleTimeoutMS,
+				MaxResponseIdleTimeoutMS,
+			)
 		}
 		if err := validateEnvName(backend.BearerTokenEnv); err != nil {
 			return nil, fmt.Errorf("%s.bearer_token_env: %w", where, err)

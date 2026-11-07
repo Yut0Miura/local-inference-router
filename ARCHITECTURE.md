@@ -29,7 +29,7 @@ One YAML document, `version: 1`, decoded with unknown fields rejected. A file la
 
 Validation covers listen address, backend kinds, base URL shape, unique normalized backend origins, capacity and timeout bounds, environment variable names, alias and route references, priorities and duplicates. It never touches the network, so `validate` is safe to run anywhere.
 
-Defaults: `listen` becomes `127.0.0.1:8080`, `response_header_timeout_ms` becomes `120000`.
+Defaults: `listen` becomes `127.0.0.1:8080`, `response_header_timeout_ms` becomes `120000`, `response_idle_timeout_ms` becomes `120000`.
 
 ## Backend Health
 
@@ -85,6 +85,8 @@ Each route is tried at most once, there is no backoff, and the attempt count is 
 A response whose media type is `text/event-stream` is relayed through a writer that flushes after every write, with a reusable 32 KiB buffer. Events are neither parsed nor rewritten, and the body is never accumulated in memory. Non-streaming responses use the same buffered copy without flushing.
 
 If the downstream writer cannot flush and the upstream is a stream, the router closes the upstream and returns `500` — this is only possible before commitment, so the client gets a clean error instead of a stalled stream.
+
+Long streams have no overall deadline. Only silence is bounded: if no new response bytes arrive within `response_idle_timeout_ms`, the upstream body is closed, the attempt ends and its reservation is released.
 
 ## Authentication Boundary
 

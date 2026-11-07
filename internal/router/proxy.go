@@ -199,7 +199,11 @@ func (p *Proxy) attempt(r *http.Request, route *Route, payload map[string]json.R
 // forward sends the upstream response downstream. After WriteHeader the
 // response is committed and no failover is possible.
 func (p *Proxy) forward(w http.ResponseWriter, resp *http.Response, route *Route, alias string) (int, *APIError) {
-	defer resp.Body.Close()
+	body := newIdleTimeoutReadCloser(
+		resp.Body,
+		route.Backend.ResponseIdleTimeout,
+	)
+	defer body.Close()
 
 	streaming := isEventStream(resp.Header)
 	flusher, flushable := w.(http.Flusher)
@@ -218,10 +222,15 @@ func (p *Proxy) forward(w http.ResponseWriter, resp *http.Response, route *Route
 		sink = flushWriter{w: w, f: flusher}
 	}
 
-	if err := relay(sink, resp.Body); err != nil {
+	if err := relay(sink, body); err != nil {
 		// Committed: no retry, no backend switch. The body is never logged.
-		p.logger.Error("response relay failed",
-			"alias", alias, "backend", route.Backend.Name, "status", resp.StatusCode)
+		if errors.Is(err, errResponseIdleTimeout) {
+			p.logger.Error("upstream response idle timeout",
+				"alias", alias, "backend", route.Backend.Name, "status", resp.StatusCode)
+		} else {
+			p.logger.Error("response relay failed",
+				"alias", alias, "backend", route.Backend.Name, "status", resp.StatusCode)
+		}
 	}
 	return resp.StatusCode, nil
 }

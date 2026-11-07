@@ -34,6 +34,7 @@ func backendCfg(name string, maxInflight int) config.BackendConfig {
 		BaseURL:                 "http://" + name + ".test:11434",
 		MaxInflight:             maxInflight,
 		ResponseHeaderTimeoutMS: 1000,
+		ResponseIdleTimeoutMS:   1000,
 	}
 }
 

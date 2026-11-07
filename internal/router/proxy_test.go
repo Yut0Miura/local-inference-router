@@ -89,6 +89,7 @@ func buildProxy(t *testing.T, urls []string, capacities []int, priorities []int)
 			BaseURL:                 url,
 			MaxInflight:             capacity,
 			ResponseHeaderTimeoutMS: 1000,
+			ResponseIdleTimeoutMS:   1000,
 		})
 		alias.Routes = append(alias.Routes, config.RouteConfig{
 			Backend: name, UpstreamModel: "upstream-" + name, Priority: priority,
@@ -255,6 +256,7 @@ func TestFailoverBetweenRoutesOnSameBackendAtCapacity(t *testing.T) {
 				BaseURL:                 server.URL,
 				MaxInflight:             1,
 				ResponseHeaderTimeoutMS: 1000,
+				ResponseIdleTimeoutMS:   1000,
 			},
 		},
 		Aliases: []config.AliasConfig{

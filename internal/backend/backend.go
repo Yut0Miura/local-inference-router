@@ -19,6 +19,7 @@ type Backend struct {
 	BaseURL               *url.URL
 	MaxInflight           int
 	ResponseHeaderTimeout time.Duration
+	ResponseIdleTimeout   time.Duration
 
 	// token is the backend's own credential. It is never logged and never
 	// taken from a client request.
@@ -74,12 +75,14 @@ func Build(cfgs []config.BackendConfig, secrets SecretResolver) ([]*Backend, err
 		}
 
 		timeout := time.Duration(cfg.ResponseHeaderTimeoutMS) * time.Millisecond
+		idleTimeout := time.Duration(cfg.ResponseIdleTimeoutMS) * time.Millisecond
 		backends = append(backends, &Backend{
 			Name:                  cfg.Name,
 			Kind:                  cfg.Kind,
 			BaseURL:               base,
 			MaxInflight:           cfg.MaxInflight,
 			ResponseHeaderTimeout: timeout,
+			ResponseIdleTimeout:   idleTimeout,
 			token:                 token,
 			client:                NewClient(timeout),
 		})

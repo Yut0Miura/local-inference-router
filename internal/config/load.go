@@ -97,5 +97,8 @@ func applyDefaults(cfg *Config) {
 		if cfg.Backends[i].ResponseHeaderTimeoutMS == 0 {
 			cfg.Backends[i].ResponseHeaderTimeoutMS = DefaultResponseHeaderTimeoutMS
 		}
+		if cfg.Backends[i].ResponseIdleTimeoutMS == 0 {
+			cfg.Backends[i].ResponseIdleTimeoutMS = DefaultResponseIdleTimeoutMS
+		}
 	}
 }

@@ -125,6 +125,7 @@ backends:
     base_url: "http://127.0.0.1:11434"
     max_inflight: 4
     response_header_timeout_ms: 120000
+    response_idle_timeout_ms: 120000
     bearer_token_env: ""
 
 aliases:
@@ -144,6 +145,7 @@ aliases:
 | `backends[].base_url` | an `http` or `https` origin only: a non-empty host with an optional port from `1` to `65535`, and no path, query, fragment or credentials; two backend entries may not resolve to the same normalized origin |
 | `backends[].max_inflight` | `1`–`100000` concurrent inference requests for this backend |
 | `backends[].response_header_timeout_ms` | `1000`–`900000`, default `120000`. Applies until upstream headers arrive, not to the stream that follows |
+| `backends[].response_idle_timeout_ms` | `1000`–`900000`, default `120000`. Maximum silence between reads from the upstream response body; reset whenever new response bytes arrive |
 | `backends[].bearer_token_env` | environment variable holding this backend's own token |
 | `aliases[].routes[].priority` | `0`–`1000000`; a smaller value is preferred |
 

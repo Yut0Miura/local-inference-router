@@ -62,6 +62,7 @@ func buildBackend(t *testing.T, kind, baseURL string) *backend.Backend {
 		BaseURL:                 baseURL,
 		MaxInflight:             1,
 		ResponseHeaderTimeoutMS: 1000,
+		ResponseIdleTimeoutMS:   1000,
 	}}, backend.EnvSecrets)
 	if err != nil {
 		t.Fatalf("build backend: %v", err)

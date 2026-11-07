@@ -47,6 +47,7 @@ func TestBuildRequiresConfiguredSecret(t *testing.T) {
 		BaseURL:                 "http://127.0.0.1:11434",
 		MaxInflight:             1,
 		ResponseHeaderTimeoutMS: 1000,
+		ResponseIdleTimeoutMS:   1000,
 		BearerTokenEnv:          "MISSING_TOKEN_ENV",
 	}}
 
@@ -68,6 +69,7 @@ func TestAuthorizeUsesBackendToken(t *testing.T) {
 		BaseURL:                 "https://example.invalid",
 		MaxInflight:             1,
 		ResponseHeaderTimeoutMS: 1000,
+		ResponseIdleTimeoutMS:   1000,
 		BearerTokenEnv:          "TOKEN_ENV",
 	}}, func(string) (string, bool) { return "backend-secret", true })
 	if err != nil {
@@ -90,6 +92,7 @@ func TestURLsAreBuiltFromConfig(t *testing.T) {
 		BaseURL:                 "http://127.0.0.1:11434",
 		MaxInflight:             1,
 		ResponseHeaderTimeoutMS: 1000,
+		ResponseIdleTimeoutMS:   1000,
 	}}, backend.EnvSecrets)
 	if err != nil {
 		t.Fatalf("build: %v", err)
