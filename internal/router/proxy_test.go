@@ -115,6 +115,91 @@ func buildProxy(t *testing.T, urls []string, capacities []int, priorities []int)
 	return router.NewProxy(state, recorder, quietLogger()), state
 }
 
+func buildProxyWithMetrics(
+	t *testing.T,
+	urls []string,
+	capacities []int,
+	priorities []int,
+) (*router.Proxy, *router.State, *metrics.Metrics) {
+	t.Helper()
+
+	cfg := &config.Config{Version: 1, Listen: "127.0.0.1:8080"}
+	alias := config.AliasConfig{Name: "chat"}
+
+	for i, url := range urls {
+		name := string(rune('a' + i))
+		capacity := 10
+		if i < len(capacities) {
+			capacity = capacities[i]
+		}
+		priority := 10
+		if i < len(priorities) {
+			priority = priorities[i]
+		}
+
+		cfg.Backends = append(cfg.Backends, config.BackendConfig{
+			Name:                    name,
+			Kind:                    config.KindOllama,
+			BaseURL:                 url,
+			MaxInflight:             capacity,
+			ResponseHeaderTimeoutMS: 1000,
+			ResponseIdleTimeoutMS:   1000,
+		})
+
+		alias.Routes = append(alias.Routes, config.RouteConfig{
+			Backend:       name,
+			UpstreamModel: "upstream-" + name,
+			Priority:      priority,
+		})
+	}
+
+	cfg.Aliases = []config.AliasConfig{alias}
+
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("invalid test configuration: %v", err)
+	}
+
+	backends, err := backend.Build(cfg.Backends, backend.EnvSecrets)
+	if err != nil {
+		t.Fatalf("build backends: %v", err)
+	}
+
+	recorder := metrics.New()
+
+	state, err := router.NewState(cfg, backends, recorder)
+	if err != nil {
+		t.Fatalf("new state: %v", err)
+	}
+
+	for _, b := range cfg.Backends {
+		state.SetHealth(b.Name, true)
+	}
+
+	return router.NewProxy(state, recorder, quietLogger()), state, recorder
+}
+
+func attemptDurationSum(t *testing.T, recorder *metrics.Metrics) float64 {
+	t.Helper()
+
+	families, err := recorder.Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, family := range families {
+		if family.GetName() != "local_inference_router_backend_attempt_duration_seconds" {
+			continue
+		}
+
+		for _, metric := range family.Metric {
+			return metric.GetHistogram().GetSampleSum()
+		}
+	}
+
+	t.Fatal("attempt duration metric not found")
+	return 0
+}
+
 func chatPayload(t *testing.T, raw string) map[string]json.RawMessage {
 	t.Helper()
 	var payload map[string]json.RawMessage
@@ -756,5 +841,44 @@ func TestReservationIsReleasedAfterEveryOutcome(t *testing.T) {
 		if status.Inflight != 0 {
 			t.Fatalf("backend %q kept %d reservations", status.Name, status.Inflight)
 		}
+	}
+}
+
+func TestAttemptDurationIncludesFinalResponseBody(t *testing.T) {
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		time.Sleep(150 * time.Millisecond)
+
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	})
+
+	proxy, _, recorder := buildProxyWithMetrics(
+		t,
+		[]string{up.server.URL},
+		nil,
+		nil,
+	)
+
+	_, status, apiErr := serve(
+		t,
+		proxy,
+		chatPayload(t, `{"model":"chat"}`),
+	)
+
+	if apiErr != nil || status != http.StatusOK {
+		t.Fatalf("status = %d, err = %+v", status, apiErr)
+	}
+
+	if got := attemptDurationSum(t, recorder); got < 0.1 {
+		t.Fatalf(
+			"attempt duration = %.3fs, want final response body time included",
+			got,
+		)
 	}
 }

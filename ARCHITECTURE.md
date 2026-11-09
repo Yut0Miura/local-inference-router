@@ -100,6 +100,8 @@ Backend credentials are separate configuration and are the only credentials ever
 
 A dedicated registry holds seven instruments: inbound request count and duration, upstream attempt count and duration, per-backend in-flight and health gauges, and a failover counter. Labels are fixed vocabularies — route names, backend names, alias names, attempt results and failover reasons — so cardinality cannot grow with traffic.
 
+Upstream attempt duration covers each attempt until it is abandoned for failover or, for the final attempt, until the response body finishes relaying downstream.
+
 ## Concurrency
 
 - One mutex for all routing state; no lock is held while an upstream request is in flight.

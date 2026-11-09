@@ -113,7 +113,10 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 	for {
 		attempted[route] = true
 
-		resp, elapsed, attemptErr := p.attempt(r, route, payload)
+		started := time.Now()
+
+		resp, attemptErr := p.attempt(r, route, payload)
+		elapsed := time.Since(started)
 
 		if attemptErr != nil {
 			if isCanceled(r.Context(), attemptErr) {
@@ -150,8 +153,6 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 			continue
 		}
 
-		p.observe(route, metrics.ResultResponse, elapsed)
-
 		if reason, ok := retryableStatus(resp.StatusCode); ok {
 			// Transfer the current reservation to the next route atomically. This
 			// also allows another model route on the same backend to be selected
@@ -162,6 +163,11 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 				p.metrics.Failover(alias, reason)
 				p.logger.Info("failing over",
 					"alias", alias, "backend", route.Backend.Name, "status", resp.StatusCode)
+				p.observe(
+					route,
+					metrics.ResultResponse,
+					time.Since(started),
+				)
 				route = next
 				continue
 			}
@@ -170,30 +176,34 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 		}
 
 		status, apiErr := p.forward(w, resp, route, alias)
+
+		p.observe(
+			route,
+			metrics.ResultResponse,
+			time.Since(started),
+		)
+
 		p.state.Release(route)
 		return status, apiErr
 	}
 }
 
 // attempt performs one upstream request. The returned response body is open.
-func (p *Proxy) attempt(r *http.Request, route *Route, payload map[string]json.RawMessage) (*http.Response, time.Duration, error) {
-	started := time.Now()
-
+func (p *Proxy) attempt(r *http.Request, route *Route, payload map[string]json.RawMessage) (*http.Response, error) {
 	body, err := encodeWithModel(payload, route.UpstreamModel)
 	if err != nil {
-		return nil, time.Since(started), err
+		return nil, err
 	}
 
 	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
 		route.Backend.ChatURL().String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, time.Since(started), err
+		return nil, err
 	}
 	setUpstreamHeaders(upstream, r, route)
 	upstream.ContentLength = int64(len(body))
 
-	resp, err := route.Backend.Client().Do(upstream)
-	return resp, time.Since(started), err
+	return route.Backend.Client().Do(upstream)
 }
 
 // forward sends the upstream response downstream. After WriteHeader the

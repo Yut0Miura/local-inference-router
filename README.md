@@ -310,6 +310,8 @@ A client's `Authorization` header is never forwarded to a backend. Backend crede
 | `local_inference_router_backend_healthy` | `backend` |
 | `local_inference_router_failovers_total` | `alias`, `reason` |
 
+`local_inference_router_backend_attempt_duration_seconds` measures each attempt until it is abandoned for failover or, for the final attempt, until the response body finishes relaying downstream.
+
 `route` is one of `chat_completions`, `models`, `healthz`, `readyz`, `router_status` — never a raw request path. Prompts, request identifiers, upstream URLs, tokens and arbitrary error text never become labels. `/metrics` does not instrument itself.
 
 ## Docker
