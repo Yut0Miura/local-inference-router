@@ -224,6 +224,8 @@ When the upstream answers with `text/event-stream`, the router relays bytes incr
 
 The response `model` field is **not** rewritten: a streamed answer carries whatever model name the backend reports. Rewriting it would mean parsing and re-encoding every event of every backend's dialect, which this version deliberately does not do.
 
+The router disables Go's automatic upstream gzip negotiation and decompression so streamed response bytes are not silently transformed by the HTTP transport.
+
 ## API
 
 | Endpoint | Purpose |

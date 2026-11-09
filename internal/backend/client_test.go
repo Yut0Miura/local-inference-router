@@ -1,9 +1,12 @@
 package backend_test
 
 import (
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Yut0Miura/local-inference-router/internal/backend"
 	"github.com/Yut0Miura/local-inference-router/internal/config"
@@ -102,5 +105,53 @@ func TestURLsAreBuiltFromConfig(t *testing.T) {
 	}
 	if got := backends[0].HealthURL().String(); got != "http://127.0.0.1:11434/api/version" {
 		t.Fatalf("health URL = %q", got)
+	}
+}
+
+func TestClientDoesNotImplicitlyRequestOrDecodeGzip(t *testing.T) {
+	var acceptEncoding string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptEncoding = r.Header.Get("Accept-Encoding")
+
+		w.Header().Set("Content-Encoding", "gzip")
+
+		writer := gzip.NewWriter(w)
+		_, _ = writer.Write([]byte("hello"))
+		_ = writer.Close()
+	}))
+	defer server.Close()
+
+	resp, err := backend.NewClient(time.Second).Get(server.URL)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if acceptEncoding != "" {
+		t.Fatalf("Accept-Encoding = %q, want empty", acceptEncoding)
+	}
+
+	if got := resp.Header.Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", got)
+	}
+
+	if resp.Uncompressed {
+		t.Fatal("response was transparently decompressed")
+	}
+
+	reader, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	defer reader.Close()
+
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read gzip body: %v", err)
+	}
+
+	if string(body) != "hello" {
+		t.Fatalf("body = %q, want hello", body)
 	}
 }

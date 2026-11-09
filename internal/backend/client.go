@@ -47,6 +47,7 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	transport.TLSHandshakeTimeout = TLSHandshakeTimeout
 	transport.IdleConnTimeout = IdleConnTimeout
 	transport.ResponseHeaderTimeout = responseHeaderTimeout
+	transport.DisableCompression = true
 	transport.ForceAttemptHTTP2 = true
 	return transport
 }

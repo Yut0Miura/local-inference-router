@@ -88,6 +88,8 @@ If the downstream writer cannot flush and the upstream is a stream, the router c
 
 Long streams have no overall deadline. Only silence is bounded: if no new response bytes arrive within `response_idle_timeout_ms`, the upstream body is closed, the attempt ends and its reservation is released.
 
+The upstream transport disables automatic HTTP compression. It does not synthesize `Accept-Encoding: gzip` and does not transparently decompress upstream responses, so response bytes and `Content-Encoding` remain under backend control.
+
 ## Authentication Boundary
 
 Inbound authentication is optional and covers the chat, models, status and metrics endpoints. Liveness and readiness are always open.
