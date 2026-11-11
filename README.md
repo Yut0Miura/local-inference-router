@@ -336,7 +336,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   }'
 ```
 
-The demo model is small and runs on CPU: no GPU, CUDA or ROCm is required, and no cloud API key. The image is built from `golang:1.27.3-bookworm` into `gcr.io/distroless/static-debian13:nonroot`, runs as UID `65532` and contains no shell or package manager.
+The demo model is small and runs on CPU: no GPU, CUDA or ROCm is required, and no cloud API key. The image is built from `golang:1.27.4-bookworm` into `gcr.io/distroless/static-debian13:nonroot`, runs as UID `65532` and contains no shell or package manager.
 
 ## Security Model
 
