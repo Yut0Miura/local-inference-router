@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Yut0Miura/local-inference-router/internal/backend"
 	"github.com/Yut0Miura/local-inference-router/internal/metrics"
 )
 
@@ -159,7 +160,7 @@ func (p *Proxy) Serve(w http.ResponseWriter, r *http.Request, alias string, payl
 			// when the backend is already at max_inflight.
 			next, nextErr := p.state.SwapReservation(alias, route, attempted)
 			if nextErr == nil {
-				resp.Body.Close()
+				backend.DrainAndClose(resp)
 				p.metrics.Failover(alias, reason)
 				p.logger.Info("failing over",
 					"alias", alias, "backend", route.Backend.Name, "status", resp.StatusCode)

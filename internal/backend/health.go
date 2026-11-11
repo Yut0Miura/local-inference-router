@@ -101,6 +101,6 @@ func (c *Checker) probe(ctx context.Context, b *Backend) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer DrainAndClose(resp)
 	return resp.StatusCode == http.StatusOK
 }

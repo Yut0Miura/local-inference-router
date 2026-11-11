@@ -80,6 +80,8 @@ Retryable before commitment: transport, DNS, TLS and response-header-timeout fai
 
 Each route is tried at most once, there is no backoff, and the attempt count is bounded by the number of routes in the alias. On a retryable status the router atomically transfers the current reservation to the next eligible route while holding the routing mutex. The current slot is temporarily made available only inside that critical section, which allows failover between different model routes on the same backend at max_inflight without letting another concurrent request steal the slot. If no alternative exists, the current reservation is restored.
 
+Discarded health and retryable-failover responses are drained up to 32 KiB before closing so small bodies can preserve HTTP connection reuse without reading arbitrarily large responses.
+
 ## Streaming
 
 A response whose media type is `text/event-stream` is relayed through a writer that flushes after every write, with a reusable 32 KiB buffer. Events are neither parsed nor rewritten, and the body is never accumulated in memory. Non-streaming responses use the same buffered copy without flushing.

@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -222,5 +224,49 @@ func TestCheckerStopsWithContext(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("health goroutines did not stop when the context was canceled")
+	}
+}
+
+func TestHealthChecksReuseConnectionAfterSmallBody(t *testing.T) {
+	var connections atomic.Int64
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"status":"ok"}`)
+		},
+	))
+
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+
+	server.Start()
+	defer server.Close()
+
+	recorder := newSink()
+
+	checker := backend.NewCheckerWithInterval(
+		[]*backend.Backend{
+			buildBackend(t, config.KindVLLM, server.URL),
+		},
+		recorder,
+		quietLogger(),
+		50*time.Millisecond,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go checker.Run(ctx)
+
+	recorder.waitForUpdate(t)
+	recorder.waitForUpdate(t)
+
+	cancel()
+
+	if got := connections.Load(); got != 1 {
+		t.Fatalf("connections = %d, want 1 reused connection", got)
 	}
 }
