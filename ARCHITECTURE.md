@@ -110,6 +110,7 @@ Upstream attempt duration covers each attempt until it is abandoned for failover
 - One goroutine per backend for health checks, all stopped by the server context, so shutdown leaks nothing.
 - The reservation and release pair is the only shared mutable counter on the request path.
 - The concurrency tests run hundreds of goroutines against a small capacity under `-race`, and assert that the observed number of simultaneous reservations never exceeds the configured capacity.
+- A graceful shutdown failure triggers a forced HTTP server close and the process exits with a non-zero status instead of reporting a successful stop.
 
 ## Non-Goals
 

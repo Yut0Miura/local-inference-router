@@ -77,6 +77,31 @@ func runValidate(path string, stdout, stderr io.Writer) int {
 	return ExitSuccess
 }
 
+type httpShutdownServer interface {
+	Shutdown(context.Context) error
+	Close() error
+}
+
+func shutdownHTTPServer(server httpShutdownServer, logger *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		httpapi.ShutdownTimeout,
+	)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("graceful shutdown failed", "error", err)
+
+		if closeErr := server.Close(); closeErr != nil {
+			logger.Error("forced server close failed", "error", closeErr)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 func runServe(path string, stderr io.Writer, logger *slog.Logger) int {
 	cfg, err := config.Load(path)
 	if err != nil {
@@ -141,15 +166,16 @@ func runServe(path string, stderr io.Writer, logger *slog.Logger) int {
 		logger.Info("shutdown signal received")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpapi.ShutdownTimeout)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown failed", "error", err)
-	}
+	shutdownErr := shutdownHTTPServer(server, logger)
 
 	// Stop the health loops and wait for them, so no goroutine outlives serve.
 	stop()
 	checks.Wait()
 	logger.Info("stopped")
+
+	if shutdownErr != nil {
+		return ExitError
+	}
+
 	return ExitSuccess
 }
